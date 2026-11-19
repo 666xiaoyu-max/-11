@@ -18,6 +18,8 @@ button:disabled{background:#99b8e8;cursor:not-allowed}
 #speedSlider{width:100%}
 #tip{position:absolute;bottom:12px;left:12px;background:#fff;padding:10px;border-radius:8px;font-size:13px;box-shadow:0 2px 8px #0002}
 #canvas-container{width:100vw;height:100vh}
+.label-anti{position:absolute;color:#111;font-weight:bold;font-size:22px;pointer-events:none}
+.label-syn{position:absolute;color:#111;font-weight:bold;font-size:22px;pointer-events:none}
 </style>
 </head>
 <body>
@@ -41,11 +43,11 @@ button:disabled{background:#99b8e8;cursor:not-allowed}
 </div>
 <div id="tip">🖱️鼠标拖拽旋转｜滚轮缩放｜可随时暂停、调节动画快慢</div>
 <div id="canvas-container"></div>
+<div class="label-anti" id="labelAnti" style="display:none">背斜</div>
+<div class="label-syn" id="labelSyn" style="display:none">向斜</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/loaders/FontLoader.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/geometries/TextGeometry.js"></script>
 
 <script>
 const scene = new THREE.Scene();
@@ -60,7 +62,6 @@ document.getElementById('canvas-container').appendChild(renderer.domElement);
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
-//光照
 const ambientLight = new THREE.AmbientLight(0xffffff,0.7);
 scene.add(ambientLight);
 const dirLight = new THREE.DirectionalLight(0xffffff,1.1);
@@ -71,18 +72,18 @@ scene.add(dirLight);
 const rockColors = [0x6b4b35,0x8b6b52,0xa88b6f,0xc9b296,0xe6d7c0];
 const layerGap = 0.75;
 let layerMeshes = [];
-let labelGroup = new THREE.Group();
-scene.add(labelGroup);
 
-//状态变量
+const labelAntiDom = document.getElementById("labelAnti");
+const labelSynDom = document.getElementById("labelSyn");
+
 const maxFoldAmp = 2.8;
 const maxErodeCut = 2.2;
 let foldProgress = 0;
 let erodeProgress = 0;
 let animating = false;
 let isPaused = false;
-let stage = 0; //0平直 1褶皱成型 2侵蚀完成
-let animSpeed = 1.0; //动画倍速
+let stage = 0;
+let animSpeed = 1.0;
 
 function createStraightLayer(yOffset,color){
     const geo = new THREE.PlaneGeometry(22,4.5,45,12);
@@ -95,18 +96,14 @@ function createStraightLayer(yOffset,color){
     return mesh;
 }
 
-//更新岩层形态（褶皱+侵蚀裁切）
 function updateGeometry(){
     layerMeshes.forEach(mesh=>{
         const posAttr = mesh.geometry.attributes.position;
         for(let i=0;i<posAttr.count;i++){
             const x = posAttr.getX(i);
-            //褶皱基础弯曲
             const foldH = maxFoldAmp * foldProgress * Math.sin(x*0.42);
-            //背斜顶部侵蚀削去高度
             let erodeCut = 0;
             if(erodeProgress>0){
-                //背斜区域（sin峰值位置）做侵蚀削减
                 const wave = Math.sin(x*0.42);
                 if(wave>0.45) erodeCut = maxErodeCut * erodeProgress * wave;
             }
@@ -115,31 +112,21 @@ function updateGeometry(){
         mesh.geometry.computeVertexNormals();
         posAttr.needsUpdate = true;
     })
+    updateDomLabelPos();
 }
 
-//添加3D文字标注：背斜、向斜
-function addLabels(){
-    labelGroup.clear();
-    const loader = new THREE.FontLoader();
-    loader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', function(font){
-        const mat = new THREE.MeshBasicMaterial({color:0x222222});
-        //背斜标注位置
-        const geoAnti = new THREE.TextGeometry("背斜",{font,size:1.3,height:0.15});
-        const antiText = new THREE.Mesh(geoAnti,mat);
-        antiText.position.set(0, maxFoldAmp*foldProgress + 1, 3.2);
-        antiText.rotation.x = -Math.PI/2;
-        labelGroup.add(antiText);
+function updateDomLabelPos(){
+    const antiWorldPos = new THREE.Vector3(0, maxFoldAmp*foldProgress + 1, 3.2);
+    antiWorldPos.project(camera);
+    labelAntiDom.style.left = ((antiWorldPos.x +1)/2 * window.innerWidth)+"px";
+    labelAntiDom.style.top = ((1 - antiWorldPos.y)/2 * window.innerHeight)+"px";
 
-        //向斜标注位置
-        const geoSyn = new THREE.TextGeometry("向斜",{font,size:1.3,height:0.15});
-        const synText = new THREE.Mesh(geoSyn,mat);
-        synText.position.set(7.5, -maxFoldAmp*foldProgress +1,3.2);
-        synText.rotation.x = -Math.PI/2;
-        labelGroup.add(synText);
-    })
+    const synWorldPos = new THREE.Vector3(7.5, -maxFoldAmp*foldProgress +1,3.2);
+    synWorldPos.project(camera);
+    labelSynDom.style.left = ((synWorldPos.x +1)/2 * window.innerWidth)+"px";
+    labelSynDom.style.top = ((1 - synWorldPos.y)/2 * window.innerHeight)+"px";
 }
 
-//重建全部岩层（重置调用）
 function rebuildLayers(){
     layerMeshes.forEach(m=>scene.remove(m));
     layerMeshes = [];
@@ -148,10 +135,10 @@ function rebuildLayers(){
         scene.add(l);
         layerMeshes.push(l);
     })
-    labelGroup.clear();
+    labelAntiDom.style.display = "none";
+    labelSynDom.style.display = "none";
 }
 
-//挤压褶皱动画
 function animateFold(){
     animating = true;
     isPaused = false;
@@ -166,7 +153,8 @@ function animateFold(){
             foldProgress =1;
             animating = false;
             stage = 1;
-            addLabels();
+            labelAntiDom.style.display = "block";
+            labelSynDom.style.display = "block";
             return;
         }
         updateGeometry();
@@ -175,7 +163,6 @@ function animateFold(){
     loop();
 }
 
-//外力侵蚀动画（地形倒置）
 function animateErode(){
     animating = true;
     isPaused = false;
@@ -190,7 +177,8 @@ function animateErode(){
             erodeProgress =1;
             animating = false;
             stage =2;
-            addLabels();
+            labelAntiDom.style.display = "block";
+            labelSynDom.style.display = "block";
             return;
         }
         updateGeometry();
@@ -199,7 +187,6 @@ function animateErode(){
     loop();
 }
 
-//按钮绑定
 const btnExtrude = document.getElementById("btnExtrude");
 const btnErode = document.getElementById("btnErode");
 const btnPause = document.getElementById("btnPause");
@@ -207,7 +194,6 @@ const btnReset = document.getElementById("btnReset");
 const speedSlider = document.getElementById("speedSlider");
 const speedText = document.getElementById("speedText");
 
-//倍速滑块事件
 speedSlider.oninput = ()=>{
     animSpeed = Number(speedSlider.value);
     speedText.innerText = `动画速度：${animSpeed.toFixed(2)}x`;
@@ -249,7 +235,9 @@ floor.position.y = -rockColors.length*layerGap -1.4;
 floor.receiveShadow = true;
 scene.add(floor);
 
-//主渲染循环
+//✅关键初始化：页面加载立刻生成平直岩层（之前缺失这一句！）
+rebuildLayers();
+
 function animate(){
     requestAnimationFrame(animate);
     controls.update();
